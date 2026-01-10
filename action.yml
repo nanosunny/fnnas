@@ -48,11 +48,11 @@ inputs:
   debs_install:
     description: "Install kernel debs for specified platform"
     required: false
-    default: "no"
+    default: "none"
   dtbs_install:
     description: "Install kernel dtbs for specified platform"
     required: false
-    default: "no"
+    default: "false"
 
 runs:
   using: "composite"

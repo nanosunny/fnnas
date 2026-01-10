@@ -53,10 +53,10 @@ fnnas_repo="https://github.com/ophub/fnnas"
 # Set the target fnnas kernel debs version (e.g., 6.12.y)
 debs_version="6.12.y"
 
-# Installation of additional deb packages inside chroot
-debs_install="no"
-# By default, download and use dtbs files
-dtbs_install="no"
+# Installation of additional deb packages inside chroot(amlogic/allwinner/rockchip/none)
+debs_install="none"
+# By default, download and use dtbs files(true/yes)
+dtbs_install="false"
 
 # Server information
 arch_info="$(uname -m)"

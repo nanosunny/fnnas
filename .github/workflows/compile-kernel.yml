@@ -35,13 +35,13 @@ on:
       debs_install:
         description: "Install kernel debs files"
         required: false
-        default: "no"
+        default: "none"
         type: choice
         options:
           - amlogic
           - allwinner
           - rockchip
-          - no
+          - none
       dtbs_install:
         description: "Install kernel dtbs files"
         required: false
@@ -161,7 +161,7 @@ jobs:
           fnnas_repo: ${{ inputs.fnnas_repo }}
           debs_version: ${{ inputs.debs_version }}
           debs_install: ${{ inputs.debs_install }}
-          debs_install: ${{ inputs.debs_install }}
+          dtbs_install: ${{ inputs.dtbs_install }}
 
       - name: Upload Kernel to Release
         uses: ncipollo/release-action@main
