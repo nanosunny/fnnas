@@ -17,8 +17,8 @@
 # error_msg           : Output error message
 # prepare_env         : Fix permissions and create missing directories
 # check_dependencies  : Install the required dependencies
+# add_scripts         : Setup u-boot hooks scripts
 # install_debs        : Install additional deb packages
-# add_scripts         : Setup u-boot hooks and detect version
 # generate_uinitrd    : Run update-initramfs
 #
 #========================== Set make environment variables ==========================
@@ -89,40 +89,9 @@ check_dependencies() {
     rm -rf /var/cache/man/*
 }
 
-install_debs() {
-    echo -e "${STEPS} Installing additional DEBs for platform: [ ${debs_platform} ]"
-
-    # Define debs path (copied by host script to /root)
-    debs_path="/root"
-
-    # Install all DEBs in the directory
-    if ls ${debs_path}/*.deb 1>/dev/null 2>&1; then
-        echo -e "${INFO} Cleaning up old kernel files in /boot to avoid FAT32 errors..."
-        rm -f /boot/vmlinuz* /boot/System.map* /boot/config* /boot/initrd* /boot/uInitrd*
-
-        echo -e "${INFO} Installing .deb files from [ ${debs_path} ]..."
-        # Using --force-all to ensure kernel replacement works even if versions conflict
-        dpkg -i --force-all ${debs_path}/*.deb || error_msg "Failed to install .deb packages."
-
-        # Locate the latest installed kernel DTB directory
-        latest_dtb_dir="$(ls -d /usr/lib/linux-image-* 2>/dev/null | sort -V | tail -n 1)"
-        [[ -z "${latest_dtb_dir}" ]] && error_msg "Cannot find installed kernel DTB directory."
-
-        # Copy DTB files to /boot/dtb/<platform>/
-        target_dtb_dir="/boot/dtb/${debs_platform}"
-        mkdir -p "${target_dtb_dir}"
-
-        echo -e "${INFO} Copying DTB files to [ ${target_dtb_dir} ]..."
-        cp -rf "${latest_dtb_dir}/${debs_platform}"/* "${target_dtb_dir}/"
-
-        echo -e "${SUCCESS} Kernel packages installed."
-    else
-        echo -e "${WARNING} Install flag set but no .deb files found in ${debs_path}."
-    fi
-}
-
+# Setup u-boot hooks
 add_scripts() {
-    echo -e "${STEPS} Adding hooks and fixing permissions..."
+    echo -e "${STEPS} Setting up u-boot hook scripts..."
 
     # Write u-boot hook script
     echo -e "${INFO} Creating /etc/initramfs/post-update.d/99-uboot hook..."
@@ -144,9 +113,55 @@ exit 0
 
 HOOK
     chmod +x /etc/initramfs/post-update.d/99-uboot
+}
 
-    # Detect kernel version
-    echo -e "${STEPS} Detecting kernel version..."
+# Install additional DEBs for the platform
+install_debs() {
+    echo -e "${STEPS} Installing additional DEBs for platform: [ ${debs_platform} ]"
+
+    # Define debs path (copied by host script to /root)
+    debs_path="/var/cache/apt/archives/fnnas"
+    [[ -d "${debs_path}" ]] || mkdir -p "${debs_path}"
+    cp -f /root/*.deb "${debs_path}/"
+    # Set permissions for deb files
+    find "${debs_path}" -type f -exec chmod a+r {} \;
+
+    # Install all DEBs in the directory
+    if ls ${debs_path}/*.deb 1>/dev/null 2>&1; then
+        echo -e "${INFO} Cleaning up old kernel files in /boot to avoid FAT32 errors..."
+        rm -f /boot/vmlinuz* /boot/System.map* /boot/config* /boot/initrd* /boot/uInitrd*
+
+        echo -e "${INFO} Installing .deb files from [ ${debs_path} ]..."
+        # Force reinstall, allow downgrades in case the debs have older versions
+        apt-get install -y --reinstall --allow-downgrades ${debs_path}/*.deb
+        # If installation fails, try fixing and reinstalling
+        [[ "${?}" -ne "0" ]] && {
+            echo -e "${INFO} Initial installation failed, attempting to fix and reinstall..."
+            apt-get install -f -y
+            apt-get install -y --reinstall --allow-downgrades ${debs_path}/*.deb
+        }
+
+        # Locate the latest installed kernel DTB directory
+        latest_dtb_dir="$(ls -d /usr/lib/linux-image-* 2>/dev/null | sort -V | tail -n 1)"
+        [[ -z "${latest_dtb_dir}" ]] && error_msg "Cannot find installed kernel DTB directory."
+
+        # Copy DTB files to /boot/dtb/<platform>/
+        target_dtb_dir="/boot/dtb/${debs_platform}"
+        mkdir -p "${target_dtb_dir}"
+
+        echo -e "${INFO} Copying DTB files to [ ${target_dtb_dir} ]..."
+        cp -rf "${latest_dtb_dir}/${debs_platform}"/* "${target_dtb_dir}/"
+
+        echo -e "${SUCCESS} Kernel packages installed."
+    else
+        echo -e "${WARNING} Install flag set but no .deb files found in ${debs_path}."
+    fi
+}
+
+# Generate uInitrd
+generate_uinitrd() {
+    cd /boot
+    echo -e "${STEPS} Generating initrd and uInitrd files..."
 
     # Take the first config file found (After install_debs, this will be the NEW version)
     kernel_version="$(ls /boot/config-* 2>/dev/null | head -n1 | awk -F'config-' '{print $2}')"
@@ -163,12 +178,6 @@ HOOK
     # Save to file for host script to read
     echo "platform_name='${platform_name}'" >>"${kernel_version_output}"
     echo -e "${INFO} Detected platform name: [ ${platform_name} ]"
-}
-
-# Generate uInitrd
-generate_uinitrd() {
-    cd /boot
-    echo -e "${STEPS} Generating initrd and uInitrd files..."
 
     # Enable update_initramfs in config if present
     [[ -f "${initramfs_conf}" ]] && sed -i "s|^update_initramfs=.*|update_initramfs=yes|g" "${initramfs_conf}"
@@ -197,10 +206,10 @@ echo -e "${INFO} Current system architecture: [ ${chroot_arch_info} ]"
 prepare_env
 # 2. Install dependencies (Need dpkg/apt working)
 check_dependencies
-# 3. Install DEBs if specified (This replaces the kernel)
-[[ "${debs_platform}" =~ ^(amlogic|allwinner|rockchip)$ ]] && install_debs
-# 4. Setup hooks and detect info (Detect the NEW kernel version)
+# 3. Setup u-boot hooks scripts
 add_scripts
+# 4. Install DEBs if specified
+[[ "${debs_platform}" =~ ^(amlogic|allwinner|rockchip)$ ]] && install_debs
 # 5. Generate images
 generate_uinitrd
 
