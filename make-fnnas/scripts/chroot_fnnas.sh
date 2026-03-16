@@ -8,18 +8,18 @@
 # This file is a part of the remake fnnas
 # https://github.com/ophub/fnnas
 #
-# Description: Run inside fnnas chroot. Installs tools, generates uInitrd.
+# Description: Run inside FnNAS chroot. Installs tools, generates uInitrd.
 # Copyright (C) 2025~ https://fnnas.com
 # Copyright (C) 2026~ https://github.com/ophub/fnnas
 #
 #================================== Functions list ==================================
 #
-# error_msg           : Output error message
+# error_msg           : Output error message and abort
 # prepare_env         : Fix permissions and create missing directories
-# check_dependencies  : Install the required dependencies
-# add_scripts         : Setup u-boot hooks scripts
+# check_dependencies  : Install required dependencies
+# add_scripts         : Set up u-boot hook scripts
 # install_debs        : Install additional deb packages
-# generate_uinitrd    : Run update-initramfs
+# generate_uinitrd    : Generate uInitrd via update-initramfs
 #
 #========================== Set make environment variables ==========================
 
@@ -46,9 +46,9 @@ error_msg() {
     exit 1
 }
 
-# Fix permissions and create missing directories FIRST
+# Fix permissions and create missing directories
 prepare_env() {
-    echo -e "${STEPS} Preparing internal environment..."
+    echo -e "${STEPS} Preparing chroot environment..."
 
     # Avoid locale warnings
     export LC_ALL=C
@@ -60,7 +60,7 @@ prepare_env() {
     [[ -d "/var/log/apt" ]] || mkdir -p "/var/log/apt"
     [[ -d "/var/lib/dpkg" ]] || mkdir -p "/var/lib/dpkg"
 
-    # Touch dpkg log to avoid "no such file" warning/error
+    # Ensure dpkg log exists to prevent warnings
     touch /var/log/dpkg.log
 }
 
@@ -89,11 +89,11 @@ check_dependencies() {
     rm -rf /var/cache/man/*
 }
 
-# Setup u-boot hooks
+# Set up u-boot hook scripts
 add_scripts() {
     echo -e "${STEPS} Setting up u-boot hook scripts..."
 
-    # Write u-boot hook script
+    # Write u-boot hook script for generating uInitrd
     echo -e "${INFO} Creating /etc/initramfs/post-update.d/99-uboot hook..."
     mkdir -p /etc/initramfs/post-update.d
 
@@ -115,23 +115,23 @@ HOOK
     chmod +x /etc/initramfs/post-update.d/99-uboot
 }
 
-# Install additional DEBs for the platform
+# Install additional deb packages for the platform
 install_debs() {
-    echo -e "${STEPS} Installing additional DEBs for platform: [ ${debs_platform} ]"
+    echo -e "${STEPS} Installing additional deb packages for platform: [ ${debs_platform} ]"
 
-    # Define debs path (copied by host script to /root)
+    # Define deb packages path (copied by host script to /root)
     debs_path="/var/cache/apt/archives/fnnas"
     [[ -d "${debs_path}" ]] || mkdir -p "${debs_path}"
     cp -f /root/*.deb "${debs_path}/"
     # Set permissions for deb files
     find "${debs_path}" -type f -exec chmod a+r {} \;
 
-    # Install all DEBs in the directory
+    # Install all deb packages in the directory
     if ls ${debs_path}/*.deb 1>/dev/null 2>&1; then
         echo -e "${INFO} Cleaning up old kernel files in /boot to avoid FAT32 errors..."
         rm -f /boot/vmlinuz* /boot/System.map* /boot/config* /boot/initrd* /boot/uInitrd*
 
-        echo -e "${INFO} Installing .deb files from [ ${debs_path} ]..."
+        echo -e "${INFO} Installing .deb packages from [ ${debs_path} ]..."
         # Force reinstall, allow downgrades in case the debs have older versions
         apt-get install -y --reinstall --allow-downgrades ${debs_path}/*.deb
         # If installation fails, try fixing and reinstalling
@@ -152,20 +152,20 @@ install_debs() {
         echo -e "${INFO} Copying DTB files to [ ${target_dtb_dir} ]..."
         cp -rf "${latest_dtb_dir}/${debs_platform}"/* "${target_dtb_dir}/"
 
-        echo -e "${SUCCESS} Kernel packages installed."
+        echo -e "${SUCCESS} Kernel packages installed successfully."
     else
-        echo -e "${WARNING} Install flag set but no .deb files found in ${debs_path}."
+        echo -e "${WARNING} No .deb files found in [ ${debs_path} ], skipping."
     fi
 }
 
 # Generate uInitrd
 generate_uinitrd() {
     cd /boot
-    echo -e "${STEPS} Generating initrd and uInitrd files..."
+    echo -e "${STEPS} Generating initrd and uInitrd..."
 
     # Take the first config file found (After install_debs, this will be the NEW version)
     kernel_version="$(ls /boot/config-* 2>/dev/null | head -n1 | awk -F'config-' '{print $2}')"
-    [[ -z "${kernel_version}" ]] && error_msg "Cannot detect the kernel version (no /boot/config-* found)."
+    [[ -z "${kernel_version}" ]] && error_msg "Cannot detect kernel version (no /boot/config-* found)."
     # Save to file for host script to read
     echo "kernel_version='${kernel_version}'" >"${kernel_version_output}"
     echo -e "${INFO} Detected kernel version: [ ${kernel_version} ]"
@@ -174,12 +174,12 @@ generate_uinitrd() {
     platform_name="$(ls -d /boot/dtb/*/ 2>/dev/null | head -n1 | xargs basename)"
     # Override if installed via DEBs
     [[ "${debs_platform}" =~ ^(amlogic|allwinner|rockchip)$ ]] && platform_name="${debs_platform}"
-    [[ -z "${platform_name}" ]] && error_msg "Cannot detect platform name from dtb folder."
+    [[ -z "${platform_name}" ]] && error_msg "Cannot detect platform name from DTB folder."
     # Save to file for host script to read
     echo "platform_name='${platform_name}'" >>"${kernel_version_output}"
     echo -e "${INFO} Detected platform name: [ ${platform_name} ]"
 
-    # Enable update_initramfs in config if present
+    # Enable update_initramfs if config file exists
     [[ -f "${initramfs_conf}" ]] && sed -i "s|^update_initramfs=.*|update_initramfs=yes|g" "${initramfs_conf}"
 
     # Generate initrd (hook will generate uInitrd)
@@ -194,7 +194,7 @@ generate_uinitrd() {
         error_msg "Failed to generate uInitrd."
     fi
 
-    echo -e "${INFO} Boot directory listing: "
+    echo -e "${INFO} Boot directory contents: "
     ls -hl *"${kernel_version}" 2>/dev/null
 }
 
