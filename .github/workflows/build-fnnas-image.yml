@@ -208,6 +208,7 @@ on:
           - tpm312
           - tqc-a01
           - tvi3315a
+          - transpeed-m98-8k-plus
           - vplus
           - wocyber-a3
           - wxy-oect
@@ -415,7 +416,7 @@ jobs:
 
           # Create directory symlinks for packaging
           ln -sf /builder/fnnas ${{ github.workspace }}/fnnas
-          ln -sf /builder/fnnas /home/runner/work/_actions/ophub/fnnas/main/fnnas
+          ln -sf /builder/fnnas "/home/runner/work/_actions/${{ github.repository_owner }}/fnnas/main/fnnas"
 
           echo "build_tag=${build_tag}" >> ${GITHUB_ENV}
           echo "status=success" >> ${GITHUB_OUTPUT}
